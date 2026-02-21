@@ -372,7 +372,7 @@ const statusPageTemplate = `<!DOCTYPE html>
 <body>
     <div class="container">
         <h1>WhaleSlap</h1>
-        <div class="version">v{{.Version}} ({{.Commit}}) • Up {{.Uptime}}</div>
+        <div class="version">{{.Version}} ({{.Commit}}) • Up {{.Uptime}}</div>
 
         <div class="card">
             <h2>Status</h2>
@@ -418,11 +418,6 @@ const statusPageTemplate = `<!DOCTYPE html>
                 {{end}}
             </div>
             {{end}}
-        </div>
-
-        <div class="card">
-            <h2>Webhook URL</h2>
-            <div class="webhook-url">{{.WebhookURL}}</div>
         </div>
 
         <div class="refresh">Auto-refreshes every 30 seconds</div>
