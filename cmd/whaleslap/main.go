@@ -48,19 +48,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	if cfg.AutoDiscover {
-		logger.Info("configuration loaded",
-			"mode", "auto-discover",
-			"schedule", cfg.Schedule,
-			"upgrade_window", cfg.UpgradeWindow,
-			"webhook_id", cfg.WebhookID[:8]+"...")
-	} else {
-		logger.Info("configuration loaded",
-			"services", len(cfg.Containers),
-			"schedule", cfg.Schedule,
-			"upgrade_window", cfg.UpgradeWindow,
-			"webhook_id", cfg.WebhookID[:8]+"...")
-	}
+	logger.Info("configuration loaded",
+		"schedule", cfg.Schedule,
+		"upgrade_window", cfg.UpgradeWindow,
+		"webhook_id", cfg.WebhookID[:8]+"...")
 
 	// Create Docker client
 	dockerClient, err := docker.NewClient(cfg)
@@ -70,21 +61,19 @@ func main() {
 	}
 	defer dockerClient.Close()
 
-	// Auto-discover services if none specified
-	if cfg.AutoDiscover {
-		logger.Info("auto-discovering compose services...")
-		services, err := dockerClient.DiscoverComposeServices(context.Background())
-		if err != nil {
-			logger.Error("failed to discover services", "error", err)
-			os.Exit(1)
-		}
-		if len(services) == 0 {
-			logger.Error("no compose services found to manage")
-			os.Exit(1)
-		}
-		cfg.Containers = services
-		logger.Info("discovered services", "count", len(services))
+	// Discover services from compose stack
+	logger.Info("discovering compose services...")
+	services, err := dockerClient.DiscoverComposeServices(context.Background())
+	if err != nil {
+		logger.Error("failed to discover services", "error", err)
+		os.Exit(1)
 	}
+	if len(services) == 0 {
+		logger.Error("no compose services found to manage")
+		os.Exit(1)
+	}
+	cfg.Containers = services
+	logger.Info("discovered services", "count", len(services))
 
 	// Create updater
 	upd := updater.New(cfg, dockerClient)
@@ -152,11 +141,7 @@ func printStartupInfo(cfg *config.Config, server *webhook.Server) {
 			"currently_in_window", cfg.IsInUpgradeWindow())
 	}
 
-	if cfg.AutoDiscover {
-		logger.Info("managed services (auto-discovered):")
-	} else {
-		logger.Info("managed services:")
-	}
+	logger.Info("managed services:")
 	for _, name := range cfg.Containers {
 		logger.Info("  - " + name)
 	}

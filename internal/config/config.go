@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -30,12 +29,8 @@ type Config struct {
 	// GitHub PAT for pulling private images from GHCR
 	GithubPAT string `yaml:"github_pat"`
 
-	// List of service names to manage (optional - if empty, auto-discovers from compose)
-	// Excludes whaleslap itself when auto-discovering
-	Containers []string `yaml:"containers"`
-
-	// AutoDiscover indicates containers should be discovered from compose stack
-	AutoDiscover bool
+	// Containers holds discovered service names (populated at runtime)
+	Containers []string
 
 	// WebhookID is the unique identifier for the webhook endpoint
 	// Auto-generated if not specified
@@ -116,29 +111,9 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("WHALESLAP_COMPOSE_PROJECT"); v != "" {
 		c.ComposeProject = v
 	}
-	if v := os.Getenv("WHALESLAP_CONTAINERS"); v != "" {
-		// Format: "service1,service2,service3"
-		for _, name := range strings.Split(v, ",") {
-			name = strings.TrimSpace(name)
-			if name != "" {
-				c.Containers = append(c.Containers, name)
-			}
-		}
-	}
 }
 
 func (c *Config) Validate() error {
-	// If no containers specified, we'll auto-discover from compose stack
-	if len(c.Containers) == 0 {
-		c.AutoDiscover = true
-	}
-
-	for _, name := range c.Containers {
-		if name == "" {
-			return fmt.Errorf("container name cannot be empty")
-		}
-	}
-
 	if c.UpgradeWindow != WindowNone &&
 		c.UpgradeWindow != WindowNightly &&
 		c.UpgradeWindow != WindowWeekly {

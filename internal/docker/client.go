@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
@@ -107,20 +108,76 @@ func (c *Client) getLocalImageDigest(ctx context.Context, imageName string) (str
 }
 
 func (c *Client) getAuthForImage(imageName string) string {
-	// Check if this is a GHCR image and we have a PAT
-	if strings.HasPrefix(imageName, "ghcr.io/") && c.cfg.GithubPAT != "" {
-		if auth, ok := c.authCache["ghcr.io"]; ok {
-			return auth
+	// Extract registry from image name
+	registryHost := "docker.io"
+	if strings.Contains(imageName, "/") {
+		parts := strings.SplitN(imageName, "/", 2)
+		if strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":") {
+			registryHost = parts[0]
 		}
+	}
 
+	// Check cache first
+	if auth, ok := c.authCache[registryHost]; ok {
+		return auth
+	}
+
+	// Try GITHUB_PAT for GHCR
+	if strings.HasPrefix(imageName, "ghcr.io/") && c.cfg.GithubPAT != "" {
 		authConfig := registry.AuthConfig{
 			Username: "USERNAME",
 			Password: c.cfg.GithubPAT,
 		}
 		encodedJSON, _ := json.Marshal(authConfig)
 		auth := base64.URLEncoding.EncodeToString(encodedJSON)
-		c.authCache["ghcr.io"] = auth
+		c.authCache[registryHost] = auth
 		return auth
+	}
+
+	// Try to load from Docker config file (~/.docker/config.json)
+	auth := c.getAuthFromDockerConfig(registryHost)
+	if auth != "" {
+		c.authCache[registryHost] = auth
+		return auth
+	}
+
+	return ""
+}
+
+func (c *Client) getAuthFromDockerConfig(registryHost string) string {
+	// Check common locations for Docker config
+	configPaths := []string{
+		"/root/.docker/config.json",
+		os.Getenv("HOME") + "/.docker/config.json",
+	}
+
+	for _, configPath := range configPaths {
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			continue
+		}
+
+		var config struct {
+			Auths map[string]struct {
+				Auth string `json:"auth"`
+			} `json:"auths"`
+		}
+
+		if err := json.Unmarshal(data, &config); err != nil {
+			continue
+		}
+
+		// Try exact match first
+		if authEntry, ok := config.Auths[registryHost]; ok && authEntry.Auth != "" {
+			logger.Debug("using auth from docker config", "registry", registryHost)
+			return authEntry.Auth
+		}
+
+		// Try with https:// prefix
+		if authEntry, ok := config.Auths["https://"+registryHost]; ok && authEntry.Auth != "" {
+			logger.Debug("using auth from docker config", "registry", registryHost)
+			return authEntry.Auth
+		}
 	}
 
 	return ""
@@ -279,8 +336,27 @@ func (c *Client) ResolveContainerImage(ctx context.Context, containerName, confi
 	return imageName, nil
 }
 
-// DiscoverComposeServices finds all services in the compose stack, excluding whaleslap
+// DiscoverComposeServices finds all services in the same compose stack as whaleslap
 func (c *Client) DiscoverComposeServices(ctx context.Context) ([]string, error) {
+	// First, find our own compose project by looking at our container
+	ourProject, err := c.getOwnComposeProject(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("detecting compose project: %w", err)
+	}
+
+	// Use configured project if set, otherwise use auto-detected
+	targetProject := c.cfg.ComposeProject
+	if targetProject == "" {
+		targetProject = ourProject
+	}
+
+	if targetProject == "" {
+		return nil, fmt.Errorf("not running in a compose stack (no com.docker.compose.project label)")
+	}
+
+	logger.Debug("discovering services in compose project", "project", targetProject)
+
+	// Find all containers in the same project
 	allContainers, err := c.docker.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
 		return nil, fmt.Errorf("listing containers: %w", err)
@@ -290,9 +366,14 @@ func (c *Client) DiscoverComposeServices(ctx context.Context) ([]string, error) 
 	seen := make(map[string]bool)
 
 	for _, cont := range allContainers {
-		// Check if it's a compose-managed container
-		serviceName, isCompose := cont.Labels["com.docker.compose.service"]
-		if !isCompose {
+		// Check if it's in our compose project
+		project := cont.Labels["com.docker.compose.project"]
+		if project != targetProject {
+			continue
+		}
+
+		serviceName := cont.Labels["com.docker.compose.service"]
+		if serviceName == "" {
 			continue
 		}
 
@@ -301,12 +382,10 @@ func (c *Client) DiscoverComposeServices(ctx context.Context) ([]string, error) 
 			continue
 		}
 
-		// Filter by compose project if configured
-		if c.cfg.ComposeProject != "" {
-			project := cont.Labels["com.docker.compose.project"]
-			if project != c.cfg.ComposeProject {
-				continue
-			}
+		// Skip services with whaleslap.ignore=true label
+		if cont.Labels["whaleslap.ignore"] == "true" {
+			logger.Debug("skipping ignored service", "service", serviceName)
+			continue
 		}
 
 		// Avoid duplicates
@@ -320,4 +399,31 @@ func (c *Client) DiscoverComposeServices(ctx context.Context) ([]string, error) 
 	}
 
 	return services, nil
+}
+
+// getOwnComposeProject finds the compose project of the whaleslap container itself
+func (c *Client) getOwnComposeProject(ctx context.Context) (string, error) {
+	// Get our hostname which is typically the container ID
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", fmt.Errorf("getting hostname: %w", err)
+	}
+
+	// Try to inspect our own container
+	info, err := c.docker.ContainerInspect(ctx, hostname)
+	if err != nil {
+		// Fallback: search for container with whaleslap service label
+		containers, err := c.docker.ContainerList(ctx, container.ListOptions{
+			All: true,
+			Filters: filters.NewArgs(
+				filters.Arg("label", "com.docker.compose.service=whaleslap"),
+			),
+		})
+		if err != nil || len(containers) == 0 {
+			return "", nil // Not in a compose stack
+		}
+		return containers[0].Labels["com.docker.compose.project"], nil
+	}
+
+	return info.Config.Labels["com.docker.compose.project"], nil
 }

@@ -1,29 +1,35 @@
 services:
   whaleslap:
     image: ghcr.io/jclement/whaleslap:latest
-    container_name: whaleslap
     restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./docker-compose.yml:/docker-compose.yml:ro
+      # Option 1: Use existing Docker credentials
+      # - ~/.docker/config.json:/root/.docker/config.json:ro
     environment:
-      # Auto-discovers myapp and worker services (no WHALESLAP_CONTAINERS needed)
+      # Auto-discovers myapp and worker services via Docker labels
       WHALESLAP_SCHEDULE: "5m"
       WHALESLAP_UPGRADE_WINDOW: "nightly"
       WHALESLAP_WEBHOOK_ID: ${WHALESLAP_WEBHOOK_ID}  # Keep secret!
+      # Option 2: Use GitHub PAT for GHCR
       GITHUB_PAT: ${GITHUB_PAT}
 
   # These services are auto-discovered and managed by WhaleSlap
   myapp:
     image: ghcr.io/user/myapp:latest
-    container_name: myapp
     restart: unless-stopped
     ports:
       - "3000:3000"
 
   worker:
     image: ghcr.io/user/worker:latest
-    container_name: worker
     restart: unless-stopped
+
+  # Example: exclude a service from WhaleSlap updates
+  database:
+    image: postgres:15
+    restart: unless-stopped
+    labels:
+      whaleslap.ignore: "true"  # WhaleSlap won't auto-update this service

@@ -5,7 +5,6 @@ A targeted Docker container updater for compose stacks. Unlike broad solutions l
 ## Features
 
 - **Auto-discovery**: Automatically finds all services in your compose stack
-- **Targeted updates**: Or specify exactly which services to manage
 - **Upgrade windows**: Restrict updates to specific times (nightly, weekly)
 - **GitHub compatible**: Works as a GitHub repository webhook out of the box
 - **Scheduled checks**: Polling for new images on a schedule
@@ -25,7 +24,6 @@ services:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./docker-compose.yml:/docker-compose.yml:ro
     environment:
       WHALESLAP_WEBHOOK_ID: ${WHALESLAP_WEBHOOK_ID}  # Keep this secret!
       GITHUB_PAT: ${GITHUB_PAT}
@@ -35,7 +33,7 @@ services:
     # ...
 ```
 
-That's it! WhaleSlap auto-discovers all other services in the stack.
+That's it! WhaleSlap auto-discovers all other services in the same compose stack by inspecting Docker labels.
 
 ## Configuration
 
@@ -43,18 +41,27 @@ All configuration is done via environment variables:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `WHALESLAP_CONTAINERS` | No | Comma-separated services to manage (auto-discovers if not set) |
 | `WHALESLAP_SCHEDULE` | No | Check frequency (e.g., "5m", "1h", "daily") |
 | `WHALESLAP_UPGRADE_WINDOW` | No | "nightly" (11pm-6am) or "weekly" (Sun 6pm - Mon 6am) |
 | `WHALESLAP_WEBHOOK_ID` | No | Webhook endpoint ID (auto-generated if not set) |
 | `WHALESLAP_PORT` | No | Web server port (default: 8080) |
 | `WHALESLAP_DEBUG` | No | Enable debug logging ("true"/"false") |
 | `GITHUB_PAT` | No | GitHub PAT for private GHCR images |
-| `COMPOSE_FILE` | No | Path to compose file (auto-detected) |
+| `WHALESLAP_COMPOSE_PROJECT` | No | Compose project to manage (auto-detected from own container) |
 
 ### Auto-Discovery
 
-If `WHALESLAP_CONTAINERS` is not set, WhaleSlap automatically discovers all services in the compose stack (excluding itself). This is the recommended approach.
+WhaleSlap automatically discovers all services in the same compose stack by reading Docker labels. No compose file mount needed - it inspects its own container to find the project name, then finds all other services in that project.
+
+To exclude a service from auto-discovery, add the `whaleslap.ignore=true` label:
+
+```yaml
+services:
+  database:
+    image: postgres:15
+    labels:
+      whaleslap.ignore: "true"  # WhaleSlap won't update this service
+```
 
 ### Schedule Formats
 
@@ -72,7 +79,7 @@ When an update is detected outside the window, it's queued and applied when the 
 
 ## GitHub Repository Webhook
 
-WhaleSlap works directly with GitHub repository webhooks. Any POST triggers an update of all services.
+WhaleSlap works directly with GitHub repository webhooks. Any POST triggers a check for updates on all services - if a newer image is available, it's pulled and deployed.
 
 ### Setup
 
@@ -124,19 +131,39 @@ curl -X POST "https://your-server/.well-known/whaleslap/YOUR_WEBHOOK_ID" \
 
 ## How It Works
 
-1. WhaleSlap discovers (or uses configured) compose services
-2. On schedule (or webhook trigger), it checks for new image versions
-3. If an update is available:
+1. WhaleSlap discovers compose services (excluding those with `whaleslap.ignore: "true"`)
+2. On schedule or webhook trigger, it checks for new image versions by comparing digests
+3. If a newer image is available:
    - If no upgrade window: applies immediately via `docker compose up -d --pull always`
    - If upgrade window set: queues update until window opens
 4. WhaleSlap updates itself nightly at 3am
 
-## Private Images (GHCR)
+## Private Images
 
-For private GitHub Container Registry images:
+WhaleSlap supports two methods for authenticating with private registries:
 
-1. Create a GitHub Personal Access Token with `read:packages` scope
-2. Set the `GITHUB_PAT` environment variable
+### Option 1: Mount Docker Config (Recommended)
+
+Mount your existing Docker credentials:
+
+```yaml
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock:ro
+  - ~/.docker/config.json:/root/.docker/config.json:ro
+```
+
+This uses credentials from `docker login` and works with any registry.
+
+### Option 2: GitHub PAT (GHCR only)
+
+For GitHub Container Registry, set the `GITHUB_PAT` environment variable:
+
+```yaml
+environment:
+  GITHUB_PAT: ${GITHUB_PAT}
+```
+
+Create a PAT with `read:packages` scope at GitHub Settings > Developer settings > Personal access tokens.
 
 ## Example: Minimal Setup
 
@@ -149,7 +176,6 @@ services:
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./docker-compose.yml:/docker-compose.yml:ro
     environment:
       WHALESLAP_WEBHOOK_ID: ${WHALESLAP_WEBHOOK_ID}
       GITHUB_PAT: ${GITHUB_PAT}
@@ -165,7 +191,7 @@ services:
       - "8000:8000"
 ```
 
-WhaleSlap will auto-discover `frontend` and `api` services.
+WhaleSlap will auto-discover `frontend` and `api` services (no compose file mount needed).
 
 ## Building
 
