@@ -1,0 +1,32 @@
+# Example: How to trigger WhaleSlap from your app's GitHub Actions
+# Add this as a step in your app's workflow after building the image
+
+# OPTION 1: Simple - just POST to trigger all services
+#
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Build and push image
+#         # ... your build steps ...
+#
+#       - name: Trigger WhaleSlap
+#         run: curl -X POST "${{ secrets.WHALESLAP_URL }}"
+
+# OPTION 2: Trigger a specific service
+#
+#       - name: Trigger WhaleSlap
+#         run: |
+#           curl -X POST "${{ secrets.WHALESLAP_URL }}" \
+#             -H "Content-Type: application/json" \
+#             -d '{"service": "myapp"}'
+
+# OPTION 3: Use GitHub repository webhooks (no curl needed!)
+#
+# 1. Go to your repo Settings > Webhooks > Add webhook
+# 2. Set Payload URL to: https://your-server/.well-known/whaleslap/{webhook_id}
+# 3. Set Content type to: application/json
+# 4. Select events: "Workflow runs" or "Packages"
+# 5. Save
+#
+# Now any workflow completion or package publish automatically triggers WhaleSlap!

@@ -1,0 +1,29 @@
+services:
+  whaleslap:
+    image: ghcr.io/jclement/whaleslap:latest
+    container_name: whaleslap
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker-compose.yml:/docker-compose.yml:ro
+    environment:
+      # Auto-discovers myapp and worker services (no WHALESLAP_CONTAINERS needed)
+      WHALESLAP_SCHEDULE: "5m"
+      WHALESLAP_UPGRADE_WINDOW: "nightly"
+      WHALESLAP_WEBHOOK_ID: ${WHALESLAP_WEBHOOK_ID}  # Keep secret!
+      GITHUB_PAT: ${GITHUB_PAT}
+
+  # These services are auto-discovered and managed by WhaleSlap
+  myapp:
+    image: ghcr.io/user/myapp:latest
+    container_name: myapp
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+
+  worker:
+    image: ghcr.io/user/worker:latest
+    container_name: worker
+    restart: unless-stopped
