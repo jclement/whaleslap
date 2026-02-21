@@ -48,10 +48,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	webhookPreview := cfg.WebhookID
+	if len(webhookPreview) > 8 {
+		webhookPreview = webhookPreview[:8] + "..."
+	}
 	logger.Info("configuration loaded",
 		"schedule", cfg.Schedule,
 		"upgrade_window", cfg.UpgradeWindow,
-		"webhook_id", cfg.WebhookID[:8]+"...")
+		"webhook_id", webhookPreview)
 
 	// Create Docker client
 	dockerClient, err := docker.NewClient(cfg)
@@ -60,6 +64,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer dockerClient.Close()
+
+	// Log auth configuration
+	dockerClient.LogAuthStatus()
 
 	// Discover services from compose stack
 	logger.Info("discovering compose services...")
@@ -82,7 +89,7 @@ func main() {
 	sched := scheduler.New(cfg, upd.CheckForUpdate, upd.ApplyUpdate)
 
 	// Create webhook server
-	webhookServer := webhook.NewServer(cfg, sched)
+	webhookServer := webhook.NewServer(cfg, sched, dockerClient, version, commit, buildDate)
 
 	// Setup context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -149,9 +156,7 @@ func printStartupInfo(cfg *config.Config, server *webhook.Server) {
 	// Print example curl command
 	fmt.Println()
 	fmt.Println("Example webhook trigger:")
-	if len(cfg.Containers) > 0 {
-		fmt.Println(webhook.FormatCurlExample("http://localhost:"+fmt.Sprint(cfg.Port), cfg.WebhookID, cfg.Containers[0]))
-	}
+	fmt.Println(webhook.FormatCurlExample("http://localhost:"+fmt.Sprint(cfg.Port), cfg.WebhookID))
 	fmt.Println()
 }
 

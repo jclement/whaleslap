@@ -3,6 +3,9 @@ package logger
 import (
 	"log/slog"
 	"os"
+	"time"
+
+	"github.com/lmittmann/tint"
 )
 
 var Log *slog.Logger
@@ -13,11 +16,10 @@ func Init(debug bool) {
 		level = slog.LevelDebug
 	}
 
-	opts := &slog.HandlerOptions{
-		Level: level,
-	}
-
-	Log = slog.New(slog.NewTextHandler(os.Stdout, opts))
+	Log = slog.New(tint.NewHandler(os.Stdout, &tint.Options{
+		Level:      level,
+		TimeFormat: time.RFC3339,
+	}))
 	slog.SetDefault(Log)
 }
 

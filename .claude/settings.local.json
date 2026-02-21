@@ -7,7 +7,18 @@
       "Bash(go version:*)",
       "Bash(go mod tidy:*)",
       "Bash(go get:*)",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(docker compose:*)",
+      "Bash(curl:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker logs:*)",
+      "Bash(lsof:*)",
+      "Bash(ss:*)",
+      "Bash(docker port:*)",
+      "Bash(docker info:*)",
+      "Bash(docker context:*)",
+      "Bash(colima status:*)",
+      "Bash(./whaleslap:*)"
     ]
   }
 }

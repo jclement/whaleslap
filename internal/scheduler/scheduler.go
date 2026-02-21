@@ -32,6 +32,8 @@ type Scheduler struct {
 	mu             sync.Mutex
 	stopCh         chan struct{}
 	wg             sync.WaitGroup
+	lastCheck      time.Time
+	interval       time.Duration
 }
 
 func New(cfg *config.Config, checkFunc CheckFunc, updateFunc UpdateFunc) *Scheduler {
@@ -55,6 +57,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		return fmt.Errorf("parsing schedule: %w", err)
 	}
 
+	s.interval = interval
 	logger.Info("starting scheduler", "interval", interval)
 
 	s.wg.Add(1)
@@ -81,6 +84,7 @@ func (s *Scheduler) run(ctx context.Context, interval time.Duration) {
 	defer ticker.Stop()
 
 	// Run immediately on start
+	s.lastCheck = time.Now()
 	s.checkAllContainers(ctx)
 
 	for {
@@ -90,6 +94,7 @@ func (s *Scheduler) run(ctx context.Context, interval time.Duration) {
 		case <-s.stopCh:
 			return
 		case <-ticker.C:
+			s.lastCheck = time.Now()
 			s.checkAllContainers(ctx)
 		}
 	}
@@ -164,6 +169,24 @@ func (s *Scheduler) processPendingUpdates(ctx context.Context) {
 	s.mu.Unlock()
 
 	for _, update := range updates {
+		// Check if update is actually available (pulls latest and compares digests)
+		hasUpdate, err := s.checkFunc(ctx, update.ServiceName)
+		if err != nil {
+			logger.Error("failed to check for update", "service", update.ServiceName, "error", err)
+			s.mu.Lock()
+			delete(s.pendingUpdates, update.ServiceName)
+			s.mu.Unlock()
+			continue
+		}
+
+		if !hasUpdate {
+			logger.Debug("image is current", "service", update.ServiceName)
+			s.mu.Lock()
+			delete(s.pendingUpdates, update.ServiceName)
+			s.mu.Unlock()
+			continue
+		}
+
 		logger.Info("applying update", "service", update.ServiceName)
 
 		if err := s.updateFunc(ctx, update.ServiceName); err != nil {
@@ -207,6 +230,19 @@ func (s *Scheduler) IsConfigured(serviceName string) bool {
 		}
 	}
 	return false
+}
+
+// GetNextCheckTime returns the time of the next scheduled check
+func (s *Scheduler) GetNextCheckTime() string {
+	if s.interval == 0 {
+		return ""
+	}
+	nextCheck := s.lastCheck.Add(s.interval)
+	remaining := time.Until(nextCheck)
+	if remaining < 0 {
+		return "now"
+	}
+	return fmt.Sprintf("in %s", remaining.Round(time.Second))
 }
 
 // parseSchedule parses a schedule string into a duration

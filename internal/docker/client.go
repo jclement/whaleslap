@@ -50,6 +50,47 @@ func (c *Client) Close() error {
 	return c.docker.Close()
 }
 
+// LogAuthStatus logs the current authentication configuration for debugging
+func (c *Client) LogAuthStatus() {
+	// Check GITHUB_PAT
+	if c.cfg.GithubPAT != "" {
+		logger.Info("registry auth: GITHUB_PAT configured", "length", len(c.cfg.GithubPAT))
+	} else {
+		logger.Info("registry auth: GITHUB_PAT not set")
+	}
+
+	// Check Docker config files
+	configPaths := []string{
+		"/root/.docker/config.json",
+		os.Getenv("HOME") + "/.docker/config.json",
+	}
+
+	for _, configPath := range configPaths {
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			logger.Debug("registry auth: docker config not found", "path", configPath)
+			continue
+		}
+
+		var config struct {
+			Auths map[string]struct {
+				Auth string `json:"auth"`
+			} `json:"auths"`
+		}
+
+		if err := json.Unmarshal(data, &config); err != nil {
+			logger.Warn("registry auth: failed to parse docker config", "path", configPath, "error", err)
+			continue
+		}
+
+		registries := make([]string, 0, len(config.Auths))
+		for registry := range config.Auths {
+			registries = append(registries, registry)
+		}
+		logger.Info("registry auth: docker config found", "path", configPath, "registries", registries)
+	}
+}
+
 // CheckForUpdate checks if a new version of the image is available
 func (c *Client) CheckForUpdate(ctx context.Context, imageName string) (bool, string, error) {
 	logger.Debug("checking for updates", "image", imageName)
@@ -117,13 +158,17 @@ func (c *Client) getAuthForImage(imageName string) string {
 		}
 	}
 
+	logger.Debug("resolving auth for image", "image", imageName, "registry", registryHost)
+
 	// Check cache first
 	if auth, ok := c.authCache[registryHost]; ok {
+		logger.Debug("using cached auth", "registry", registryHost)
 		return auth
 	}
 
 	// Try GITHUB_PAT for GHCR
 	if strings.HasPrefix(imageName, "ghcr.io/") && c.cfg.GithubPAT != "" {
+		logger.Debug("using GITHUB_PAT for GHCR auth", "registry", registryHost)
 		authConfig := registry.AuthConfig{
 			Username: "USERNAME",
 			Password: c.cfg.GithubPAT,
@@ -141,6 +186,7 @@ func (c *Client) getAuthForImage(imageName string) string {
 		return auth
 	}
 
+	logger.Warn("no auth found for registry", "registry", registryHost, "image", imageName)
 	return ""
 }
 
@@ -154,6 +200,7 @@ func (c *Client) getAuthFromDockerConfig(registryHost string) string {
 	for _, configPath := range configPaths {
 		data, err := os.ReadFile(configPath)
 		if err != nil {
+			logger.Debug("docker config not readable", "path", configPath, "error", err)
 			continue
 		}
 
@@ -164,22 +211,31 @@ func (c *Client) getAuthFromDockerConfig(registryHost string) string {
 		}
 
 		if err := json.Unmarshal(data, &config); err != nil {
+			logger.Debug("docker config parse error", "path", configPath, "error", err)
 			continue
 		}
 
+		// Log available registries for debugging
+		availableRegistries := make([]string, 0, len(config.Auths))
+		for reg := range config.Auths {
+			availableRegistries = append(availableRegistries, reg)
+		}
+		logger.Debug("docker config registries", "path", configPath, "registries", availableRegistries, "looking_for", registryHost)
+
 		// Try exact match first
 		if authEntry, ok := config.Auths[registryHost]; ok && authEntry.Auth != "" {
-			logger.Debug("using auth from docker config", "registry", registryHost)
+			logger.Debug("using auth from docker config (exact match)", "registry", registryHost, "path", configPath)
 			return authEntry.Auth
 		}
 
 		// Try with https:// prefix
 		if authEntry, ok := config.Auths["https://"+registryHost]; ok && authEntry.Auth != "" {
-			logger.Debug("using auth from docker config", "registry", registryHost)
+			logger.Debug("using auth from docker config (https prefix)", "registry", registryHost, "path", configPath)
 			return authEntry.Auth
 		}
 	}
 
+	logger.Debug("no matching auth in docker config", "registry", registryHost)
 	return ""
 }
 
@@ -244,10 +300,67 @@ func (c *Client) UpdateContainer(ctx context.Context, containerName, imageName s
 	return nil
 }
 
-// RecreateContainer uses docker compose to recreate a container with the new image
-func (c *Client) RecreateContainer(ctx context.Context, containerName string) error {
-	// We'll trigger compose to recreate via labels
-	// This is handled by the scheduler/webhook calling docker compose
+// RecreateContainer stops the old container and creates a new one with the same config but new image
+func (c *Client) RecreateContainer(ctx context.Context, serviceName, newImage string) error {
+	logger.Info("recreating container", "service", serviceName, "image", newImage)
+
+	// Find the container by compose service label
+	containers, err := c.docker.ContainerList(ctx, container.ListOptions{
+		All: true,
+		Filters: filters.NewArgs(
+			filters.Arg("label", "com.docker.compose.service="+serviceName),
+		),
+	})
+	if err != nil {
+		return fmt.Errorf("listing containers: %w", err)
+	}
+
+	if len(containers) == 0 {
+		return fmt.Errorf("container for service %q not found", serviceName)
+	}
+
+	oldContainer := containers[0]
+	oldContainerID := oldContainer.ID
+
+	// Get full container config
+	inspect, err := c.docker.ContainerInspect(ctx, oldContainerID)
+	if err != nil {
+		return fmt.Errorf("inspecting container: %w", err)
+	}
+
+	// Preserve the container name
+	containerName := strings.TrimPrefix(oldContainer.Names[0], "/")
+
+	// Stop the old container
+	logger.Debug("stopping container", "container", containerName)
+	if err := c.docker.ContainerStop(ctx, oldContainerID, container.StopOptions{}); err != nil {
+		return fmt.Errorf("stopping container: %w", err)
+	}
+
+	// Remove the old container
+	logger.Debug("removing container", "container", containerName)
+	if err := c.docker.ContainerRemove(ctx, oldContainerID, container.RemoveOptions{}); err != nil {
+		return fmt.Errorf("removing container: %w", err)
+	}
+
+	// Create new container config with updated image
+	newConfig := inspect.Config
+	newConfig.Image = newImage
+
+	// Create the new container with the same name
+	resp, err := c.docker.ContainerCreate(ctx, newConfig, inspect.HostConfig, nil, nil, containerName)
+	if err != nil {
+		return fmt.Errorf("creating container: %w", err)
+	}
+
+	logger.Debug("created new container", "container", containerName, "id", resp.ID[:12])
+
+	// Start the new container
+	if err := c.docker.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		return fmt.Errorf("starting container: %w", err)
+	}
+
+	logger.Info("container recreated successfully", "container", containerName, "image", newImage)
 	return nil
 }
 
@@ -356,8 +469,8 @@ func (c *Client) DiscoverComposeServices(ctx context.Context) ([]string, error) 
 
 	logger.Debug("discovering services in compose project", "project", targetProject)
 
-	// Find all containers in the same project
-	allContainers, err := c.docker.ContainerList(ctx, container.ListOptions{All: true})
+	// Find all running containers in the same project
+	allContainers, err := c.docker.ContainerList(ctx, container.ListOptions{All: false})
 	if err != nil {
 		return nil, fmt.Errorf("listing containers: %w", err)
 	}
@@ -403,10 +516,41 @@ func (c *Client) DiscoverComposeServices(ctx context.Context) ([]string, error) 
 
 // getOwnComposeProject finds the compose project of the whaleslap container itself
 func (c *Client) getOwnComposeProject(ctx context.Context) (string, error) {
+	info, err := c.getOwnContainerInfo(ctx)
+	if err != nil {
+		return "", nil // Not in a compose stack
+	}
+	return info.Config.Labels["com.docker.compose.project"], nil
+}
+
+// GetOwnImage returns the image name of the whaleslap container itself
+func (c *Client) GetOwnImage(ctx context.Context) (string, error) {
+	info, err := c.getOwnContainerInfo(ctx)
+	if err != nil {
+		return "", fmt.Errorf("getting own container info: %w", err)
+	}
+	return info.Config.Image, nil
+}
+
+// GetOwnServiceName returns the compose service name of the whaleslap container
+func (c *Client) GetOwnServiceName(ctx context.Context) (string, error) {
+	info, err := c.getOwnContainerInfo(ctx)
+	if err != nil {
+		return "", fmt.Errorf("getting own container info: %w", err)
+	}
+	serviceName := info.Config.Labels["com.docker.compose.service"]
+	if serviceName == "" {
+		return "", fmt.Errorf("container has no compose service label")
+	}
+	return serviceName, nil
+}
+
+// getOwnContainerInfo inspects our own container
+func (c *Client) getOwnContainerInfo(ctx context.Context) (container.InspectResponse, error) {
 	// Get our hostname which is typically the container ID
 	hostname, err := os.Hostname()
 	if err != nil {
-		return "", fmt.Errorf("getting hostname: %w", err)
+		return container.InspectResponse{}, fmt.Errorf("getting hostname: %w", err)
 	}
 
 	// Try to inspect our own container
@@ -420,10 +564,10 @@ func (c *Client) getOwnComposeProject(ctx context.Context) (string, error) {
 			),
 		})
 		if err != nil || len(containers) == 0 {
-			return "", nil // Not in a compose stack
+			return container.InspectResponse{}, fmt.Errorf("could not find own container")
 		}
-		return containers[0].Labels["com.docker.compose.project"], nil
+		return c.docker.ContainerInspect(ctx, containers[0].ID)
 	}
 
-	return info.Config.Labels["com.docker.compose.project"], nil
+	return info, nil
 }
