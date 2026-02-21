@@ -11,6 +11,7 @@ import (
 
 	"github.com/jclement/whaleslap/internal/config"
 	"github.com/jclement/whaleslap/internal/logger"
+	"github.com/jclement/whaleslap/internal/notifier"
 )
 
 // UpdateFunc applies an update to a container (service name only, image looked up)
@@ -28,6 +29,7 @@ type Scheduler struct {
 	cfg            *config.Config
 	checkFunc      CheckFunc
 	updateFunc     UpdateFunc
+	notifier       *notifier.Notifier
 	pendingUpdates map[string]*PendingUpdate
 	mu             sync.Mutex
 	stopCh         chan struct{}
@@ -41,6 +43,7 @@ func New(cfg *config.Config, checkFunc CheckFunc, updateFunc UpdateFunc) *Schedu
 		cfg:            cfg,
 		checkFunc:      checkFunc,
 		updateFunc:     updateFunc,
+		notifier:       notifier.New(cfg),
 		pendingUpdates: make(map[string]*PendingUpdate),
 		stopCh:         make(chan struct{}),
 	}
@@ -153,6 +156,7 @@ func (s *Scheduler) QueueUpdate(serviceName string) {
 	}
 
 	logger.Info("update queued", "service", serviceName)
+	s.notifier.Notify(context.Background(), notifier.EventUpdateQueued, serviceName, "Update detected and queued")
 }
 
 func (s *Scheduler) processPendingUpdates(ctx context.Context) {
@@ -188,9 +192,11 @@ func (s *Scheduler) processPendingUpdates(ctx context.Context) {
 		}
 
 		logger.Info("applying update", "service", update.ServiceName)
+		s.notifier.Notify(ctx, notifier.EventUpdateStarted, update.ServiceName, "Starting container update")
 
 		if err := s.updateFunc(ctx, update.ServiceName); err != nil {
 			logger.Error("failed to apply update", "service", update.ServiceName, "error", err)
+			s.notifier.NotifyError(ctx, notifier.EventUpdateFailed, update.ServiceName, err)
 			continue
 		}
 
@@ -199,6 +205,7 @@ func (s *Scheduler) processPendingUpdates(ctx context.Context) {
 		s.mu.Unlock()
 
 		logger.Info("update applied successfully", "service", update.ServiceName)
+		s.notifier.Notify(ctx, notifier.EventUpdateCompleted, update.ServiceName, "Container updated successfully")
 	}
 }
 

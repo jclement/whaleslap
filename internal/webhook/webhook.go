@@ -2,6 +2,8 @@ package webhook
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -164,7 +166,8 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	clientID := r.RemoteAddr
+	// Generate unique client ID to avoid collisions from same IP
+	clientID := generateClientID()
 	events := make(chan []byte, 10)
 
 	s.clientsMu.Lock()
@@ -429,6 +432,16 @@ const statusPageTemplate = `<!DOCTYPE html>
 // GetWebhookURL returns the full webhook URL path
 func (s *Server) GetWebhookURL() string {
 	return fmt.Sprintf("/.well-known/whaleslap/%s", s.cfg.WebhookID)
+}
+
+// generateClientID creates a unique ID for SSE clients
+func generateClientID() string {
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to timestamp if crypto/rand fails
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(bytes)
 }
 
 // FormatCurlExample returns a curl command example for triggering updates

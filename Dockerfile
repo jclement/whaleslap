@@ -26,7 +26,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Runtime stage
 FROM alpine:3.23
 
-RUN apk add --no-cache ca-certificates docker-cli docker-cli-compose
+RUN apk add --no-cache ca-certificates docker-cli docker-cli-compose curl
 
 COPY --from=builder /whaleslap /usr/local/bin/whaleslap
 
@@ -35,5 +35,8 @@ RUN addgroup -g 1000 whaleslap && \
     adduser -u 1000 -G whaleslap -D whaleslap
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["/usr/local/bin/whaleslap"]

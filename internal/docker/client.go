@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
 	"github.com/jclement/whaleslap/internal/config"
@@ -301,6 +302,7 @@ func (c *Client) UpdateContainer(ctx context.Context, containerName, imageName s
 }
 
 // RecreateContainer stops the old container and creates a new one with the same config but new image
+// Preserves all configuration: networking, mounts, environment, labels, etc.
 func (c *Client) RecreateContainer(ctx context.Context, serviceName, newImage string) error {
 	logger.Info("recreating container", "service", serviceName, "image", newImage)
 
@@ -331,6 +333,34 @@ func (c *Client) RecreateContainer(ctx context.Context, serviceName, newImage st
 	// Preserve the container name
 	containerName := strings.TrimPrefix(oldContainer.Names[0], "/")
 
+	// Build networking config from the old container's network settings
+	networkingConfig := &network.NetworkingConfig{
+		EndpointsConfig: make(map[string]*network.EndpointSettings),
+	}
+	if inspect.NetworkSettings != nil && inspect.NetworkSettings.Networks != nil {
+		for netName, netSettings := range inspect.NetworkSettings.Networks {
+			networkingConfig.EndpointsConfig[netName] = &network.EndpointSettings{
+				IPAMConfig:          netSettings.IPAMConfig,
+				Links:               netSettings.Links,
+				Aliases:             netSettings.Aliases,
+				MacAddress:          netSettings.MacAddress,
+				DriverOpts:          netSettings.DriverOpts,
+				NetworkID:           netSettings.NetworkID,
+				EndpointID:          "", // Will be assigned by Docker
+				Gateway:             "", // Will be assigned by Docker
+				IPAddress:           "", // Will be assigned by Docker (unless static)
+				IPPrefixLen:         0,  // Will be assigned by Docker
+				IPv6Gateway:         "", // Will be assigned by Docker
+				GlobalIPv6Address:   "", // Will be assigned by Docker
+				GlobalIPv6PrefixLen: 0,  // Will be assigned by Docker
+			}
+			// Preserve static IP if configured via IPAM
+			if netSettings.IPAMConfig != nil {
+				networkingConfig.EndpointsConfig[netName].IPAMConfig = netSettings.IPAMConfig
+			}
+		}
+	}
+
 	// Stop the old container
 	logger.Debug("stopping container", "container", containerName)
 	if err := c.docker.ContainerStop(ctx, oldContainerID, container.StopOptions{}); err != nil {
@@ -347,8 +377,8 @@ func (c *Client) RecreateContainer(ctx context.Context, serviceName, newImage st
 	newConfig := inspect.Config
 	newConfig.Image = newImage
 
-	// Create the new container with the same name
-	resp, err := c.docker.ContainerCreate(ctx, newConfig, inspect.HostConfig, nil, nil, containerName)
+	// Create the new container with full config preservation
+	resp, err := c.docker.ContainerCreate(ctx, newConfig, inspect.HostConfig, networkingConfig, nil, containerName)
 	if err != nil {
 		return fmt.Errorf("creating container: %w", err)
 	}
@@ -414,12 +444,13 @@ func (c *Client) SelfUpdate(ctx context.Context, selfImage string) (bool, error)
 	return true, nil
 }
 
-// GetContainerImage returns the image name for a running container
-func (c *Client) GetContainerImage(ctx context.Context, containerName string) (string, error) {
+// GetContainerImage returns the image name for a container by compose service name
+func (c *Client) GetContainerImage(ctx context.Context, serviceName string) (string, error) {
+	// Use label-based lookup for exact matching (avoids substring matches)
 	containers, err := c.docker.ContainerList(ctx, container.ListOptions{
 		All: true,
 		Filters: filters.NewArgs(
-			filters.Arg("name", containerName),
+			filters.Arg("label", "com.docker.compose.service="+serviceName),
 		),
 	})
 	if err != nil {
@@ -427,7 +458,7 @@ func (c *Client) GetContainerImage(ctx context.Context, containerName string) (s
 	}
 
 	if len(containers) == 0 {
-		return "", fmt.Errorf("container %q not found", containerName)
+		return "", fmt.Errorf("container for service %q not found", serviceName)
 	}
 
 	return containers[0].Image, nil

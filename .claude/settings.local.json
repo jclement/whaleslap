@@ -18,7 +18,13 @@
       "Bash(docker info:*)",
       "Bash(docker context:*)",
       "Bash(colima status:*)",
-      "Bash(./whaleslap:*)"
+      "Bash(./whaleslap:*)",
+      "Bash(go test:*)",
+      "Bash(mise run test:*)",
+      "Bash(go clean:*)",
+      "Bash(for i in 1 2 3 4 5)",
+      "Bash(do echo \"Run $i:\")",
+      "Bash(done)"
     ]
   }
 }

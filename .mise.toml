@@ -1,2 +1,22 @@
 [tools]
 go = "1.26.0"
+
+[tasks.test]
+description = "Run all tests"
+run = "go test ./..."
+
+[tasks."test:verbose"]
+description = "Run all tests with verbose output"
+run = "go test -v ./..."
+
+[tasks."test:cover"]
+description = "Run tests with coverage report"
+run = "go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html"
+
+[tasks.build]
+description = "Build the whaleslap binary"
+run = "go build -o whaleslap ./cmd/whaleslap"
+
+[tasks.lint]
+description = "Run go vet"
+run = "go vet ./..."

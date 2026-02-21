@@ -47,6 +47,10 @@ type Config struct {
 
 	// ComposeProject is the name of the compose project to manage
 	ComposeProject string `yaml:"compose_project"`
+
+	// NotifyURL is an optional webhook URL to POST status updates to
+	// Receives JSON payloads for events like update_started, update_completed, update_failed
+	NotifyURL string `yaml:"notify_url"`
 }
 
 func Load(path string) (*Config, error) {
@@ -111,6 +115,9 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("WHALESLAP_COMPOSE_PROJECT"); v != "" {
 		c.ComposeProject = v
 	}
+	if v := os.Getenv("WHALESLAP_NOTIFY_URL"); v != "" {
+		c.NotifyURL = v
+	}
 }
 
 func (c *Config) Validate() error {
@@ -153,6 +160,10 @@ func (c *Config) IsInUpgradeWindow() bool {
 
 func generateWebhookID() string {
 	bytes := make([]byte, 16)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fall back to time-based ID if crypto/rand fails
+		// This is extremely unlikely but we should handle it
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
 	return hex.EncodeToString(bytes)
 }

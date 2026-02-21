@@ -48,6 +48,7 @@ All configuration is done via environment variables:
 | `WHALESLAP_DEBUG` | No | Enable debug logging ("true"/"false") |
 | `GITHUB_PAT` | No | GitHub PAT for private GHCR images |
 | `WHALESLAP_COMPOSE_PROJECT` | No | Compose project to manage (auto-detected from own container) |
+| `WHALESLAP_NOTIFY_URL` | No | Webhook URL to POST status updates (update events) |
 
 ### Auto-Discovery
 
@@ -125,18 +126,63 @@ curl -X POST "https://your-server/.well-known/whaleslap/YOUR_WEBHOOK_ID" \
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/.well-known/whaleslap/{id}` | POST | Trigger update (all services by default) |
+| `/.well-known/whaleslap/{id}/status` | GET | HTML status dashboard |
+| `/.well-known/whaleslap/{id}/status/data` | GET | JSON status data |
 | `/.well-known/whaleslap/{id}/events` | GET | SSE event stream |
 | `/health` | GET | Health check |
-| `/status` | GET | Current status and pending updates |
+| `/status` | GET | JSON status (legacy) |
+
+### Status Dashboard
+
+WhaleSlap includes a built-in status page at `/.well-known/whaleslap/{id}/status` that shows:
+
+- Version and uptime information
+- Number of managed services and pending updates
+- Current check interval and upgrade window status
+- List of all monitored services with their images and update status
+
+The page auto-refreshes every 30 seconds.
+
+### Notification Webhooks
+
+WhaleSlap can POST status updates to an external URL when events occur. Set `WHALESLAP_NOTIFY_URL` to receive notifications:
+
+```yaml
+environment:
+  WHALESLAP_NOTIFY_URL: "https://your-server.com/webhook"
+```
+
+Events sent:
+
+| Event | Description |
+|-------|-------------|
+| `update_queued` | Update detected and added to queue |
+| `update_started` | Container update beginning |
+| `update_completed` | Container updated successfully |
+| `update_failed` | Container update failed |
+
+Example payload:
+
+```json
+{
+  "event": "update_completed",
+  "service": "myapp",
+  "message": "Container updated successfully",
+  "timestamp": "2024-01-15T03:00:00Z"
+}
+```
+
+This integrates with services like Slack, Discord (via webhook adapters), or custom monitoring systems.
 
 ## How It Works
 
-1. WhaleSlap discovers compose services (excluding those with `whaleslap.ignore: "true"`)
-2. On schedule or webhook trigger, it checks for new image versions by comparing digests
+1. WhaleSlap discovers compose services by inspecting Docker labels (excluding those with `whaleslap.ignore: "true"`)
+2. On schedule or webhook trigger, it checks for new image versions by pulling and comparing digests
 3. If a newer image is available:
-   - If no upgrade window: applies immediately via `docker compose up -d --pull always`
+   - If no upgrade window: applies immediately using the Docker API (stops, removes, recreates container)
    - If upgrade window set: queues update until window opens
-4. WhaleSlap updates itself nightly at 3am
+4. Container recreation preserves all configuration: networking, mounts, environment variables, and labels
+5. WhaleSlap updates itself nightly at 3am
 
 ## Private Images
 
