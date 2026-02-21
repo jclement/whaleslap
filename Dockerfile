@@ -24,7 +24,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /whaleslap ./cmd/whaleslap
 
 # Runtime stage
-FROM alpine:3.21
+FROM alpine:3.23
 
 RUN apk add --no-cache ca-certificates docker-cli docker-cli-compose
 
