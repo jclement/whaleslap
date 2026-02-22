@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jclement/whaleslap/actions/workflows/build.yml"><img src="https://github.com/jclement/whaleslap/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+  <a href="https://github.com/jclement/whaleslap/actions/workflows/release.yml"><img src="https://github.com/jclement/whaleslap/actions/workflows/release.yml/badge.svg" alt="Build"></a>
   <a href="https://github.com/jclement/whaleslap/releases"><img src="https://img.shields.io/github/v/release/jclement/whaleslap" alt="Release"></a>
   <a href="https://goreportcard.com/report/github.com/jclement/whaleslap"><img src="https://goreportcard.com/badge/github.com/jclement/whaleslap" alt="Go Report Card"></a>
   <a href="https://github.com/jclement/whaleslap/blob/main/LICENSE"><img src="https://img.shields.io/github/license/jclement/whaleslap" alt="License"></a>
