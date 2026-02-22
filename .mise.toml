@@ -22,7 +22,7 @@ description = "Run go vet"
 run = "go vet ./..."
 
 [tasks.release]
-description = "Interactive release: bump version, tag, and build"
+description = "Interactive release: bump version, tag, and push to trigger GitHub Action"
 run = """
 #!/bin/bash
 set -e
@@ -66,33 +66,26 @@ if [[ ! $NEW_VERSION =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+$ ]]; then
 fi
 
 echo ""
-echo "Will create release: $NEW_VERSION"
+echo "Will create and push release: $NEW_VERSION"
 read -p "Continue? [y/N]: " CONFIRM
 if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
     echo "Cancelled."
     exit 0
 fi
 
-# Create git tag
+# Create and push git tag
 echo ""
 echo "Creating git tag $NEW_VERSION..."
 git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
-echo "Tag created. Push with: git push origin $NEW_VERSION"
 
-# Build binary
-COMMIT=$(git rev-parse --short HEAD)
-BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-echo ""
-echo "Building release binary..."
-CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$NEW_VERSION -X main.commit=$COMMIT -X main.buildDate=$BUILD_DATE" -o whaleslap ./cmd/whaleslap
-echo "Binary built: ./whaleslap"
+echo "Pushing tag to origin..."
+git push origin "$NEW_VERSION"
 
 echo ""
-echo "Release $NEW_VERSION complete!"
+echo "Release $NEW_VERSION tagged and pushed!"
+echo "GitHub Action will build and publish the Docker image."
 echo ""
-echo "Next steps:"
-echo "  1. Push the tag: git push origin $NEW_VERSION"
-echo "  2. Build Docker image: mise run docker:release"
+echo "Watch progress: https://github.com/jclement/whaleslap/actions"
 """
 
 [tasks."release:all"]
@@ -130,87 +123,6 @@ COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 echo "Building dev image: whaleslap:$VERSION"
 docker build --build-arg VERSION=$VERSION --build-arg COMMIT=$COMMIT --build-arg BUILD_DATE=$BUILD_DATE -t whaleslap:$VERSION -t whaleslap:latest .
-"""
-
-[tasks."docker:release"]
-description = "Build and tag release Docker image from git tag"
-run = """
-#!/bin/bash
-set -e
-
-# Get version from latest git tag
-VERSION=$(git describe --tags --exact-match 2>/dev/null || echo "")
-if [ -z "$VERSION" ]; then
-    echo "Error: HEAD is not tagged. Run 'mise run release' first."
-    exit 1
-fi
-
-COMMIT=$(git rev-parse --short HEAD)
-BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-IMAGE_NAME="ghcr.io/jclement/whaleslap"
-
-# Parse version for major/minor tags (v1.2.3 -> v1, v1.2)
-VERSION_NUM=${VERSION#v}
-IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION_NUM"
-MAJOR_TAG="v$MAJOR"
-MINOR_TAG="v$MAJOR.$MINOR"
-
-echo "Building release image: $IMAGE_NAME:$VERSION"
-echo "  Commit: $COMMIT"
-echo "  Date: $BUILD_DATE"
-echo ""
-
-docker build \\
-    --build-arg VERSION=$VERSION \\
-    --build-arg COMMIT=$COMMIT \\
-    --build-arg BUILD_DATE=$BUILD_DATE \\
-    -t $IMAGE_NAME:$VERSION \\
-    -t $IMAGE_NAME:$MAJOR_TAG \\
-    -t $IMAGE_NAME:$MINOR_TAG \\
-    -t $IMAGE_NAME:latest \\
-    .
-
-echo ""
-echo "Images built:"
-echo "  $IMAGE_NAME:$VERSION"
-echo "  $IMAGE_NAME:$MINOR_TAG"
-echo "  $IMAGE_NAME:$MAJOR_TAG"
-echo "  $IMAGE_NAME:latest"
-"""
-
-[tasks."docker:push"]
-description = "Push release Docker images to GHCR"
-run = """
-#!/bin/bash
-set -e
-
-VERSION=$(git describe --tags --exact-match 2>/dev/null || echo "")
-if [ -z "$VERSION" ]; then
-    echo "Error: HEAD is not tagged."
-    exit 1
-fi
-
-IMAGE_NAME="ghcr.io/jclement/whaleslap"
-
-# Parse version for major/minor tags
-VERSION_NUM=${VERSION#v}
-IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION_NUM"
-MAJOR_TAG="v$MAJOR"
-MINOR_TAG="v$MAJOR.$MINOR"
-
-echo "Pushing $IMAGE_NAME:$VERSION..."
-docker push $IMAGE_NAME:$VERSION
-
-echo "Pushing $IMAGE_NAME:$MINOR_TAG..."
-docker push $IMAGE_NAME:$MINOR_TAG
-
-echo "Pushing $IMAGE_NAME:$MAJOR_TAG..."
-docker push $IMAGE_NAME:$MAJOR_TAG
-
-echo "Pushing $IMAGE_NAME:latest..."
-docker push $IMAGE_NAME:latest
-
-echo "Done!"
 """
 
 [tasks.clean]
