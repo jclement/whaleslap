@@ -1,6 +1,19 @@
-# WhaleSlap
+<p align="center">
+  <img src="assets/logo.png" alt="WhaleSlap" width="400">
+</p>
 
-A targeted Docker container updater for compose stacks. Unlike broad solutions like Watchtower, WhaleSlap lets you specify exactly which services to manage and when they can be updated.
+<p align="center">
+  <strong>A targeted Docker container updater for compose stacks.</strong><br>
+  Unlike broad solutions like Watchtower, WhaleSlap lets you specify exactly which services to manage and when they can be updated.
+</p>
+
+<p align="center">
+  <a href="https://github.com/jclement/whaleslap/actions/workflows/build.yml"><img src="https://github.com/jclement/whaleslap/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+  <a href="https://github.com/jclement/whaleslap/releases"><img src="https://img.shields.io/github/v/release/jclement/whaleslap" alt="Release"></a>
+  <a href="https://goreportcard.com/report/github.com/jclement/whaleslap"><img src="https://goreportcard.com/badge/github.com/jclement/whaleslap" alt="Go Report Card"></a>
+  <a href="https://github.com/jclement/whaleslap/blob/main/LICENSE"><img src="https://img.shields.io/github/license/jclement/whaleslap" alt="License"></a>
+  <a href="https://ghcr.io/jclement/whaleslap"><img src="https://img.shields.io/badge/ghcr.io-jclement%2Fwhaleslap-blue" alt="Container"></a>
+</p>
 
 ## Features
 

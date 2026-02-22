@@ -3,6 +3,7 @@ package webhook
 import (
 	"context"
 	"crypto/rand"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,9 @@ import (
 	"github.com/jclement/whaleslap/internal/logger"
 	"github.com/jclement/whaleslap/internal/scheduler"
 )
+
+//go:embed assets/favicon.png
+var faviconData []byte
 
 // ServiceInfoProvider provides information about monitored services
 type ServiceInfoProvider interface {
@@ -60,6 +64,9 @@ func (s *Server) Start() error {
 
 	// Health check
 	mux.HandleFunc("/health", s.handleHealth)
+
+	// Favicon
+	mux.HandleFunc("/favicon.png", s.handleFavicon)
 
 	// Status endpoints under webhook path
 	mux.HandleFunc(webhookPath+"/status", s.handleStatusPage)
@@ -221,6 +228,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(faviconData)
+}
+
 type ServiceStatus struct {
 	Name         string `json:"name"`
 	Image        string `json:"image"`
@@ -327,6 +340,7 @@ const statusPageTemplate = `<!DOCTYPE html>
 <head>
     <title>WhaleSlap Status</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" type="image/png" href="/favicon.png">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {

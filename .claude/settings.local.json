@@ -24,7 +24,10 @@
       "Bash(go clean:*)",
       "Bash(for i in 1 2 3 4 5)",
       "Bash(do echo \"Run $i:\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(mise run release:*)",
+      "Bash(VERSION=v1.0.0-test COMMIT=abc1234 BUILD_DATE=2024-01-15 go build:*)",
+      "Bash(./whaleslap-test:*)"
     ]
   }
 }
