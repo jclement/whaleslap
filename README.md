@@ -60,7 +60,6 @@ All configuration is done via environment variables:
 | `WHALESLAP_PORT` | No | Web server port (default: 8080) |
 | `WHALESLAP_DEBUG` | No | Enable debug logging ("true"/"false") |
 | `GITHUB_PAT` | No | GitHub PAT for private GHCR images |
-| `WHALESLAP_COMPOSE_PROJECT` | No | Compose project to manage (auto-detected from own container) |
 | `WHALESLAP_NOTIFY_URL` | No | Webhook URL to POST status updates (update events) |
 
 ### Auto-Discovery

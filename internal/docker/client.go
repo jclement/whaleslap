@@ -223,16 +223,34 @@ func (c *Client) getAuthFromDockerConfig(registryHost string) string {
 		}
 		logger.Debug("docker config registries", "path", configPath, "registries", availableRegistries, "looking_for", registryHost)
 
-		// Try exact match first
+		// Try exact match first, then with https:// prefix
+		var rawAuth string
 		if authEntry, ok := config.Auths[registryHost]; ok && authEntry.Auth != "" {
-			logger.Debug("using auth from docker config (exact match)", "registry", registryHost, "path", configPath)
-			return authEntry.Auth
+			rawAuth = authEntry.Auth
+		} else if authEntry, ok := config.Auths["https://"+registryHost]; ok && authEntry.Auth != "" {
+			rawAuth = authEntry.Auth
 		}
 
-		// Try with https:// prefix
-		if authEntry, ok := config.Auths["https://"+registryHost]; ok && authEntry.Auth != "" {
-			logger.Debug("using auth from docker config (https prefix)", "registry", registryHost, "path", configPath)
-			return authEntry.Auth
+		if rawAuth != "" {
+			// Docker config stores auth as base64("username:password")
+			// The Docker API expects base64(json(AuthConfig))
+			decoded, err := base64.StdEncoding.DecodeString(rawAuth)
+			if err != nil {
+				logger.Warn("failed to decode auth from docker config", "registry", registryHost, "error", err)
+				continue
+			}
+			parts := strings.SplitN(string(decoded), ":", 2)
+			if len(parts) != 2 {
+				logger.Warn("invalid auth format in docker config", "registry", registryHost)
+				continue
+			}
+			authConfig := registry.AuthConfig{
+				Username: parts[0],
+				Password: parts[1],
+			}
+			encodedJSON, _ := json.Marshal(authConfig)
+			logger.Debug("using auth from docker config", "registry", registryHost, "path", configPath)
+			return base64.URLEncoding.EncodeToString(encodedJSON)
 		}
 	}
 
@@ -260,15 +278,6 @@ func (c *Client) UpdateContainer(ctx context.Context, containerName, imageName s
 	}
 
 	target := containers[0]
-
-	// Check if part of compose project
-	if c.cfg.ComposeProject != "" {
-		if project, ok := target.Labels["com.docker.compose.project"]; ok {
-			if project != c.cfg.ComposeProject {
-				return fmt.Errorf("container %q is not part of compose project %q", containerName, c.cfg.ComposeProject)
-			}
-		}
-	}
 
 	// Pull the latest image
 	auth := c.getAuthForImage(imageName)
@@ -482,16 +491,10 @@ func (c *Client) ResolveContainerImage(ctx context.Context, containerName, confi
 
 // DiscoverComposeServices finds all services in the same compose stack as whaleslap
 func (c *Client) DiscoverComposeServices(ctx context.Context) ([]string, error) {
-	// First, find our own compose project by looking at our container
-	ourProject, err := c.getOwnComposeProject(ctx)
+	// Find our own compose project by looking at our container
+	targetProject, err := c.getOwnComposeProject(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("detecting compose project: %w", err)
-	}
-
-	// Use configured project if set, otherwise use auto-detected
-	targetProject := c.cfg.ComposeProject
-	if targetProject == "" {
-		targetProject = ourProject
 	}
 
 	if targetProject == "" {

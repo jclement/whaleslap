@@ -15,7 +15,6 @@ func TestLoad_Defaults(t *testing.T) {
 	os.Unsetenv("WHALESLAP_DEBUG")
 	os.Unsetenv("DOCKER_HOST")
 	os.Unsetenv("GITHUB_PAT")
-	os.Unsetenv("WHALESLAP_COMPOSE_PROJECT")
 	os.Unsetenv("WHALESLAP_NOTIFY_URL")
 
 	cfg, err := Load("")
@@ -46,7 +45,6 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	os.Setenv("WHALESLAP_DEBUG", "true")
 	os.Setenv("DOCKER_HOST", "tcp://localhost:2375")
 	os.Setenv("GITHUB_PAT", "ghp_test123")
-	os.Setenv("WHALESLAP_COMPOSE_PROJECT", "myproject")
 	os.Setenv("WHALESLAP_NOTIFY_URL", "https://example.com/webhook")
 	defer func() {
 		os.Unsetenv("WHALESLAP_SCHEDULE")
@@ -56,7 +54,6 @@ func TestLoad_EnvOverrides(t *testing.T) {
 		os.Unsetenv("WHALESLAP_DEBUG")
 		os.Unsetenv("DOCKER_HOST")
 		os.Unsetenv("GITHUB_PAT")
-		os.Unsetenv("WHALESLAP_COMPOSE_PROJECT")
 		os.Unsetenv("WHALESLAP_NOTIFY_URL")
 	}()
 
@@ -85,9 +82,6 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	}
 	if cfg.GithubPAT != "ghp_test123" {
 		t.Errorf("GithubPAT = %q, want %q", cfg.GithubPAT, "ghp_test123")
-	}
-	if cfg.ComposeProject != "myproject" {
-		t.Errorf("ComposeProject = %q, want %q", cfg.ComposeProject, "myproject")
 	}
 	if cfg.NotifyURL != "https://example.com/webhook" {
 		t.Errorf("NotifyURL = %q, want %q", cfg.NotifyURL, "https://example.com/webhook")

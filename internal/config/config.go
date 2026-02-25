@@ -45,9 +45,6 @@ type Config struct {
 	// DockerHost is the Docker socket path (default: unix:///var/run/docker.sock)
 	DockerHost string `yaml:"docker_host"`
 
-	// ComposeProject is the name of the compose project to manage
-	ComposeProject string `yaml:"compose_project"`
-
 	// NotifyURL is an optional webhook URL to POST status updates to
 	// Receives JSON payloads for events like update_started, update_completed, update_failed
 	NotifyURL string `yaml:"notify_url"`
@@ -111,9 +108,6 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("DOCKER_HOST"); v != "" {
 		c.DockerHost = v
-	}
-	if v := os.Getenv("WHALESLAP_COMPOSE_PROJECT"); v != "" {
-		c.ComposeProject = v
 	}
 	if v := os.Getenv("WHALESLAP_NOTIFY_URL"); v != "" {
 		c.NotifyURL = v
