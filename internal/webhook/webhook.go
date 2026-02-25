@@ -57,23 +57,23 @@ func (s *Server) Start() error {
 
 	// Webhook endpoint - durable URL for GitHub Actions
 	webhookPath := fmt.Sprintf("/.well-known/whaleslap/%s", s.cfg.WebhookID)
-	mux.HandleFunc(webhookPath, s.handleWebhook)
+	mux.HandleFunc("POST "+webhookPath, s.handleWebhook)
 
 	// Server-Sent Events for real-time updates
-	mux.HandleFunc(webhookPath+"/events", s.handleSSE)
+	mux.HandleFunc("GET "+webhookPath+"/events", s.handleSSE)
 
 	// Health check
-	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("GET /health", s.handleHealth)
 
 	// Favicon
-	mux.HandleFunc("/favicon.png", s.handleFavicon)
+	mux.HandleFunc("GET /favicon.png", s.handleFavicon)
 
 	// Status endpoints under webhook path
-	mux.HandleFunc(webhookPath+"/status", s.handleStatusPage)
-	mux.HandleFunc(webhookPath+"/status/data", s.handleStatusJSON)
+	mux.HandleFunc("GET "+webhookPath+"/status", s.handleStatusPage)
+	mux.HandleFunc("GET "+webhookPath+"/status/data", s.handleStatusJSON)
 
 	// Legacy status endpoint
-	mux.HandleFunc("/status", s.handleStatusJSON)
+	mux.HandleFunc("GET /status", s.handleStatusJSON)
 
 	s.server = &http.Server{
 		Addr:         fmt.Sprintf("0.0.0.0:%d", s.cfg.Port),
@@ -130,11 +130,6 @@ type WebhookPayload struct {
 }
 
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Try to parse payload, but don't require it
 	// This makes it compatible with GitHub webhooks which send their own payload format
 	var payload WebhookPayload

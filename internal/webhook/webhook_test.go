@@ -81,19 +81,6 @@ func TestHandleHealth(t *testing.T) {
 	}
 }
 
-func TestHandleWebhook_MethodNotAllowed(t *testing.T) {
-	server, _ := newTestServer()
-
-	req := httptest.NewRequest(http.MethodGet, "/.well-known/whaleslap/test-webhook-id", nil)
-	w := httptest.NewRecorder()
-
-	server.handleWebhook(w, req)
-
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected status 405, got %d", w.Code)
-	}
-}
-
 func TestHandleWebhook_TriggerAll(t *testing.T) {
 	server, _ := newTestServer()
 
